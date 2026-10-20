@@ -161,6 +161,7 @@ Built-in principles (`google_adc`, `api_key`) are pre-seeded in the default SQLi
 - **usage** — token breakdown (input, output, thinking, cache read/creation)
 - **citations** — grounding annotations (URL, document, search) with text spans and confidence
 - **safety** — content filtering results with per-category ratings and refusal details
+- **web_search** — when the model grounded its answer with web search (Gemini only, `None` otherwise): the `queries` it ran, every `sources` entry returned (url, title, domain) and the search-suggestion HTML (`rendered_content`)
 
 ### Streaming
 
