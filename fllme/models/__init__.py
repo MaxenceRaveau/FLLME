@@ -11,6 +11,8 @@ from .message import (
     ThinkingContent,
     ToolCallContent,
     ToolResponseContent,
+    UrlContextContent,
+    UrlRetrievalStatus,
     WebSearchQueryContent,
     UrlSource,
 )
@@ -102,6 +104,8 @@ __all__ = [
     "UrlSource",
     "Usage",
     "WebSearchQueryContent",
+    "UrlContextContent",
     "UrlContextTool",
+    "UrlRetrievalStatus",
     "WebSearchTool",
 ]

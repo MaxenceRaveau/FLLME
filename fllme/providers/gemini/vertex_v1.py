@@ -25,6 +25,8 @@ from ...models.message import (
     ThinkingContent,
     ToolCallContent,
     ToolResponseContent,
+    UrlContextContent,
+    UrlRetrievalStatus,
     WebSearchQueryContent,
     UrlSource,
 )
@@ -74,6 +76,14 @@ _FINISH_REASON_MAP: dict[str, FinishReason] = {
     "BLOCKLIST": FinishReason.CONTENT_FILTER,
     "PROHIBITED_CONTENT": FinishReason.CONTENT_FILTER,
     "SPII": FinishReason.CONTENT_FILTER,
+}
+
+_URL_RETRIEVAL_STATUS_MAP: dict[str, UrlRetrievalStatus] = {
+    "URL_RETRIEVAL_STATUS_SUCCESS": UrlRetrievalStatus.SUCCESS,
+    "URL_RETRIEVAL_STATUS_ERROR": UrlRetrievalStatus.ERROR,
+    "URL_RETRIEVAL_STATUS_PAYWALL": UrlRetrievalStatus.PAYWALL,
+    "URL_RETRIEVAL_STATUS_UNSAFE": UrlRetrievalStatus.UNSAFE,
+    "URL_RETRIEVAL_STATUS_UNSPECIFIED": UrlRetrievalStatus.UNSPECIFIED,
 }
 
 _TOOL_MODE_MAP: dict[ToolsCallingMode, str] = {
@@ -156,6 +166,7 @@ class GeminiVertexV1:
         model_name = ""
         has_tool_calls = False
         search_queries: list[str] = []
+        url_statuses: dict[str, UrlRetrievalStatus] = {}
 
         async for line in lines:
             if not line.startswith("data: "):
@@ -181,6 +192,9 @@ class GeminiVertexV1:
                     for query in gm.get("webSearchQueries") or []:
                         if query and query not in search_queries:
                             search_queries.append(query)
+
+                for url, status in _parse_url_context_metadata(candidate):
+                    url_statuses[url] = status
 
                 for part in candidate.get("content", {}).get("parts", []):
                     if part.get("thought") and (text := part.get("text")):
@@ -226,6 +240,10 @@ class GeminiVertexV1:
 
         accumulated.extend(
             WebSearchQueryContent(query=query) for query in search_queries
+        )
+        accumulated.extend(
+            UrlContextContent(url=url, status=status)
+            for url, status in url_statuses.items()
         )
 
         message = Message(source=MessageSource.MODEL, contents=accumulated)
@@ -364,6 +382,28 @@ def _parse_safety_ratings(ratings: list[dict[str, Any]]) -> SafetyResult:
             )
         )
     return SafetyResult(ratings=parsed, blocked=blocked)
+
+
+def _parse_url_context_metadata(
+    candidate: dict[str, Any],
+) -> list[tuple[str, UrlRetrievalStatus]]:
+    meta = (
+        candidate.get("urlContextMetadata")
+        or candidate.get("url_context_metadata")
+        or {}
+    )
+    entries = meta.get("urlMetadata") or meta.get("url_metadata") or []
+    results: list[tuple[str, UrlRetrievalStatus]] = []
+    for entry in entries:
+        url = entry.get("retrievedUrl") or entry.get("retrieved_url")
+        if not url:
+            continue
+        raw = entry.get("urlRetrievalStatus") or entry.get("url_retrieval_status")
+        status = _URL_RETRIEVAL_STATUS_MAP.get(
+            raw or "", UrlRetrievalStatus.UNSPECIFIED
+        )
+        results.append((url, status))
+    return results
 
 
 def _parse_grounding_metadata(grounding: dict[str, Any]) -> list[Citation]:

@@ -71,6 +71,20 @@ class WebSearchQueryContent(BaseModel):
     query: str
 
 
+class UrlRetrievalStatus(StrEnum):
+    SUCCESS = "success"
+    ERROR = "error"
+    PAYWALL = "paywall"
+    UNSAFE = "unsafe"
+    UNSPECIFIED = "unspecified"
+
+
+class UrlContextContent(BaseModel):
+    type: Literal["UrlContextContent"] = "UrlContextContent"
+    url: str
+    status: UrlRetrievalStatus
+
+
 Content = Annotated[
     Union[
         TextContent,
@@ -80,6 +94,7 @@ Content = Annotated[
         ThinkingContent,
         ErrorContent,
         WebSearchQueryContent,
+        UrlContextContent,
     ],
     Field(discriminator="type"),
 ]

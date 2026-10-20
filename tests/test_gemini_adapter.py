@@ -25,6 +25,8 @@ from fllme.models.message import (
     ThinkingContent,
     ToolCallContent,
     ToolResponseContent,
+    UrlContextContent,
+    UrlRetrievalStatus,
     WebSearchQueryContent,
     UrlSource,
 )
@@ -54,6 +56,36 @@ def _simple_input(text: str = "Hello") -> GenerationInput:
 async def _lines_from(chunks: list[dict[str, Any]]) -> AsyncIterator[str]:
     for chunk in chunks:
         yield f"data: {json.dumps(chunk)}"
+
+
+def _url_context_chunk(
+    url_metadata: list[dict[str, Any]], text: str = "Ok."
+) -> dict[str, Any]:
+    return {
+        "candidates": [
+            {
+                "content": {"parts": [{"text": text}], "role": "model"},
+                "urlContextMetadata": {"urlMetadata": url_metadata},
+            }
+        ],
+    }
+
+
+async def _final_output(chunks: list[dict[str, Any]]) -> GenerationOutput:
+    results = [
+        item async for item in GeminiVertexV1().parse_stream(_lines_from(chunks))
+    ]
+    out = results[-1]
+    assert isinstance(out, GenerationOutput)
+    return out
+
+
+def _url_items(out: GenerationOutput) -> list[tuple[str, UrlRetrievalStatus]]:
+    return [
+        (content.url, content.status)
+        for content in out.message.contents
+        if isinstance(content, UrlContextContent)
+    ]
 
 
 class TestSerialize:
@@ -256,6 +288,30 @@ class TestSerialize:
         payload = adapter.serialize(inp)
         assert payload["tools"] == [{"urlContext": {}}]
         assert "toolConfig" not in payload
+
+    def test_url_context_content_not_serialized_in_history(self) -> None:
+        adapter = GeminiVertexV1()
+        inp = GenerationInput(
+            model="gemini-2.5-flash",
+            conversation=[
+                Message(
+                    source=MessageSource.USER,
+                    contents=[TextContent(text="Read https://a.example")],
+                ),
+                Message(
+                    source=MessageSource.MODEL,
+                    contents=[
+                        TextContent(text="Done."),
+                        UrlContextContent(
+                            url="https://a.example",
+                            status=UrlRetrievalStatus.SUCCESS,
+                        ),
+                    ],
+                ),
+            ],
+        )
+        payload = adapter.serialize(inp)
+        assert payload["contents"][1]["parts"] == [{"text": "Done."}]
 
     def test_url_context_with_web_search_and_function_tools(self) -> None:
         adapter = GeminiVertexV1()
@@ -486,6 +542,113 @@ class TestParseStream:
         assert out.finish_reason == FinishReason.STOP
         assert out.usage.input_tokens == 5
         assert out.usage.output_tokens == 3
+        assert not any(
+            isinstance(content, UrlContextContent) for content in out.message.contents
+        )
+
+    @pytest.mark.asyncio
+    async def test_url_context_metadata_parsed(self) -> None:
+        chunks = [
+            _url_context_chunk(
+                [
+                    {
+                        "retrievedUrl": "https://a.example/page",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS",
+                    },
+                    {
+                        "retrievedUrl": "https://b.example/pay",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_PAYWALL",
+                    },
+                ],
+                text="Summary.",
+            )
+        ]
+        out = await _final_output(chunks)
+        assert _url_items(out) == [
+            ("https://a.example/page", UrlRetrievalStatus.SUCCESS),
+            ("https://b.example/pay", UrlRetrievalStatus.PAYWALL),
+        ]
+        assert isinstance(out.message.contents[0], TextContent)
+
+    @pytest.mark.asyncio
+    async def test_url_context_metadata_deduplicated_across_chunks(self) -> None:
+        chunks = [
+            _url_context_chunk(
+                [
+                    {
+                        "retrievedUrl": "https://a.example/page",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_ERROR",
+                    },
+                ]
+            ),
+            _url_context_chunk(
+                [
+                    {
+                        "retrievedUrl": "https://b.example/page",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS",
+                    },
+                    {
+                        "retrievedUrl": "https://a.example/page",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS",
+                    },
+                ]
+            ),
+        ]
+        out = await _final_output(chunks)
+        assert _url_items(out) == [
+            ("https://a.example/page", UrlRetrievalStatus.SUCCESS),
+            ("https://b.example/page", UrlRetrievalStatus.SUCCESS),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_url_context_unknown_status_is_unspecified(self) -> None:
+        chunks = [
+            _url_context_chunk(
+                [
+                    {
+                        "retrievedUrl": "https://a.example",
+                        "urlRetrievalStatus": "SOMETHING_NEW",
+                    },
+                    {"retrievedUrl": "https://b.example"},
+                    {"urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"},
+                    {
+                        "retrievedUrl": "",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS",
+                    },
+                ]
+            )
+        ]
+        out = await _final_output(chunks)
+        assert _url_items(out) == [
+            ("https://a.example", UrlRetrievalStatus.UNSPECIFIED),
+            ("https://b.example", UrlRetrievalStatus.UNSPECIFIED),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_url_context_snake_case_keys(self) -> None:
+        chunks: list[dict[str, Any]] = [
+            {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "Ok."}], "role": "model"},
+                        "url_context_metadata": {
+                            "url_metadata": [
+                                {
+                                    "retrieved_url": "https://a.example",
+                                    "url_retrieval_status": (
+                                        "URL_RETRIEVAL_STATUS_SUCCESS"
+                                    ),
+                                },
+                            ]
+                        },
+                    }
+                ],
+            }
+        ]
+        out = await _final_output(chunks)
+        assert _url_items(out) == [
+            ("https://a.example", UrlRetrievalStatus.SUCCESS),
+        ]
 
     @pytest.mark.asyncio
     async def test_thinking_stream(self) -> None:
