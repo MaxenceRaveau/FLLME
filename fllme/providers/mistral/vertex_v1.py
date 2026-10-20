@@ -11,6 +11,7 @@ from ...models.input import (
     ThinkingLevel,
     Tool,
     ToolsCallingMode,
+    UrlContextTool,
     WebSearchTool,
 )
 from ..base import accumulate_content
@@ -194,6 +195,12 @@ class MistralVertexV1:
                     case WebSearchTool():
                         error_msg = (
                             "Web search tool is not supported by the Mistral "
+                            "Vertex adapter"
+                        )
+                        raise SerializationError(error_msg)
+                    case UrlContextTool():
+                        error_msg = (
+                            "URL context tool is not supported by the Mistral "
                             "Vertex adapter"
                         )
                         raise SerializationError(error_msg)

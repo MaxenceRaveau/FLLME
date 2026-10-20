@@ -14,6 +14,7 @@ from fllme.models.input import (
     Tool,
     ToolsCallingMode,
     ToolsConfig,
+    UrlContextTool,
     WebSearchTool,
 )
 from fllme.models.message import (
@@ -238,6 +239,23 @@ class TestSerialize:
             }
         )
         with pytest.raises(SerializationError):
+            adapter.serialize(inp)
+
+    def test_url_context_tool_raises(self) -> None:
+        adapter = OpenAIAzureV1()
+        inp = _simple_input()
+        inp = inp.model_copy(
+            update={
+                "tool_config": ToolsConfig(
+                    tools=[UrlContextTool()],
+                    parallel_calling=False,
+                    mode=ToolsCallingMode.AUTO,
+                ),
+            }
+        )
+        with pytest.raises(
+            SerializationError, match="URL context tool is not supported"
+        ):
             adapter.serialize(inp)
 
     def test_tool_response_serialization(self) -> None:

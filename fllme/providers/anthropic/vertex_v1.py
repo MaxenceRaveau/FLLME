@@ -11,6 +11,7 @@ from ...models.input import (
     ThinkingLevel,
     Tool,
     ToolsCallingMode,
+    UrlContextTool,
     WebSearchTool,
 )
 from ..base import accumulate_content
@@ -207,6 +208,12 @@ class AnthropicVertexV1:
                     case WebSearchTool():
                         error_msg = (
                             "Web search tool is not supported by the Anthropic "
+                            "Vertex adapter"
+                        )
+                        raise SerializationError(error_msg)
+                    case UrlContextTool():
+                        error_msg = (
+                            "URL context tool is not supported by the Anthropic "
                             "Vertex adapter"
                         )
                         raise SerializationError(error_msg)
