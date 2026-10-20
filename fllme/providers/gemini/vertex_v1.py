@@ -41,6 +41,8 @@ from ...models.output import (
     TextSpan,
     ThinkingDelta,
     Usage,
+    WebSearchMetadata,
+    WebSource,
 )
 
 _THINKING_BUDGET: dict[ThinkingLevel, int] = {
@@ -149,6 +151,7 @@ class GeminiVertexV1:
         usage_meta: dict[str, Any] = {}
         safety_ratings: list[dict[str, Any]] = []
         grounding_meta: dict[str, Any] = {}
+        web_search: WebSearchMetadata | None = None
         model_name = ""
         has_tool_calls = False
 
@@ -173,6 +176,9 @@ class GeminiVertexV1:
 
                 if gm := candidate.get("groundingMetadata"):
                     grounding_meta = gm
+                    if web_search is None:
+                        web_search = WebSearchMetadata()
+                    _merge_web_search(web_search, gm)
 
                 for part in candidate.get("content", {}).get("parts", []):
                     if part.get("thought") and (text := part.get("text")):
@@ -236,6 +242,7 @@ class GeminiVertexV1:
             usage=usage,
             safety=safety,
             citations=citations,
+            web_search=web_search,
         )
 
 
@@ -377,3 +384,22 @@ def _parse_grounding_metadata(grounding: dict[str, Any]) -> list[Citation]:
                 )
             )
     return citations
+
+
+def _merge_web_search(web_search: WebSearchMetadata, grounding: dict[str, Any]) -> None:
+    for query in grounding.get("webSearchQueries", []):
+        if isinstance(query, str) and query and query not in web_search.queries:
+            web_search.queries.append(query)
+
+    known_urls = {source.url for source in web_search.sources}
+    for chunk in grounding.get("groundingChunks", []):
+        web = chunk.get("web", {})
+        url = web.get("uri")
+        if url and url not in known_urls:
+            known_urls.add(url)
+            web_search.sources.append(
+                WebSource(url=url, title=web.get("title"), domain=web.get("domain"))
+            )
+
+    if rendered := grounding.get("searchEntryPoint", {}).get("renderedContent"):
+        web_search.rendered_content = rendered

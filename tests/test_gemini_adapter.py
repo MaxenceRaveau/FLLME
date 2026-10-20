@@ -34,6 +34,7 @@ from fllme.models.output import (
     TextDelta,
     ThinkingDelta,
 )
+from fllme.models.output import WebSource
 from fllme.providers.gemini.vertex_v1 import GeminiVertexV1
 
 
@@ -433,6 +434,7 @@ class TestParseStream:
         assert out.finish_reason == FinishReason.STOP
         assert out.usage.input_tokens == 5
         assert out.usage.output_tokens == 3
+        assert out.web_search is None
 
     @pytest.mark.asyncio
     async def test_thinking_stream(self) -> None:
@@ -571,11 +573,14 @@ class TestParseStream:
                         },
                         "finishReason": "STOP",
                         "groundingMetadata": {
+                            "webSearchQueries": ["capital of France"],
+                            "searchEntryPoint": {"renderedContent": "<div>chips</div>"},
                             "groundingChunks": [
                                 {
                                     "web": {
                                         "uri": "https://example.com/paris",
                                         "title": "Paris - Wikipedia",
+                                        "domain": "example.com",
                                     },
                                 },
                             ],
@@ -612,6 +617,110 @@ class TestParseStream:
         assert citation.title == "Paris - Wikipedia"
         assert citation.span is not None
         assert citation.span.text == "Paris is the capital of France."
+        assert out.web_search is not None
+        assert out.web_search.queries == ["capital of France"]
+        assert out.web_search.sources == [
+            WebSource(
+                url="https://example.com/paris",
+                title="Paris - Wikipedia",
+                domain="example.com",
+            )
+        ]
+        assert out.web_search.rendered_content == "<div>chips</div>"
+
+    @pytest.mark.asyncio
+    async def test_web_search_accumulated_across_chunks(self) -> None:
+        adapter = GeminiVertexV1()
+        chunks: list[dict[str, Any]] = [
+            {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "Paris "}], "role": "model"},
+                        "groundingMetadata": {
+                            "webSearchQueries": [
+                                "capital of France",
+                                "Paris population",
+                            ],
+                            "groundingChunks": [
+                                {"web": {"uri": "https://a.com", "title": "a.com"}},
+                            ],
+                        },
+                    }
+                ],
+            },
+            {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [{"text": "is the capital."}],
+                            "role": "model",
+                        },
+                        "groundingMetadata": {
+                            "webSearchQueries": ["Paris population"],
+                        },
+                    }
+                ],
+            },
+            {
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "groundingMetadata": {
+                            "groundingChunks": [
+                                {"web": {"uri": "https://a.com", "title": "a.com"}},
+                                {"web": {"uri": "https://b.com", "title": "b.com"}},
+                            ],
+                            "groundingSupports": [],
+                        },
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 5,
+                    "candidatesTokenCount": 4,
+                    "totalTokenCount": 9,
+                },
+            },
+        ]
+
+        results: list[Any] = []
+        async for item in adapter.parse_stream(_lines_from(chunks)):
+            results.append(item)
+
+        out: GenerationOutput = results[-1]
+        assert out.web_search is not None
+        assert out.web_search.queries == ["capital of France", "Paris population"]
+        assert [src.url for src in out.web_search.sources] == [
+            "https://a.com",
+            "https://b.com",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_grounding_without_queries_yields_empty_web_search(self) -> None:
+        adapter = GeminiVertexV1()
+        chunks: list[dict[str, Any]] = [
+            {
+                "candidates": [
+                    {
+                        "content": {"parts": [{"text": "Hi"}], "role": "model"},
+                        "finishReason": "STOP",
+                        "groundingMetadata": {
+                            "groundingChunks": [],
+                            "groundingSupports": [],
+                        },
+                    }
+                ],
+            },
+        ]
+
+        results: list[Any] = []
+        async for item in adapter.parse_stream(_lines_from(chunks)):
+            results.append(item)
+
+        out: GenerationOutput = results[-1]
+        assert out.web_search is not None
+        assert out.web_search.queries == []
+        assert out.web_search.sources == []
+        assert out.web_search.rendered_content is None
 
     @pytest.mark.asyncio
     async def test_skips_non_sse_lines(self) -> None:
