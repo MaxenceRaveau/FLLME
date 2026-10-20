@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Collection
 from typing import Any
 
 from ...models.input import (
@@ -263,7 +263,11 @@ class GeminiVertexV1:
         )
 
         safety = _parse_safety_ratings(safety_ratings) if safety_ratings else None
-        citations = _parse_grounding_metadata(grounding_meta) if grounding_meta else []
+        citations = (
+            _parse_grounding_metadata(grounding_meta, url_statuses.keys())
+            if grounding_meta
+            else []
+        )
 
         yield GenerationOutput(
             id=uuid.uuid4().hex,
@@ -408,7 +412,9 @@ def _parse_url_context_metadata(
     return results
 
 
-def _parse_grounding_metadata(grounding: dict[str, Any]) -> list[Citation]:
+def _parse_grounding_metadata(
+    grounding: dict[str, Any], context_urls: Collection[str]
+) -> list[Citation]:
     chunks = grounding.get("groundingChunks", [])
     citations: list[Citation] = []
     for support in grounding.get("groundingSupports", []):
@@ -422,10 +428,13 @@ def _parse_grounding_metadata(grounding: dict[str, Any]) -> list[Citation]:
             if idx >= len(chunks):
                 continue
             web = chunks[idx].get("web", {})
+            uri = web.get("uri")
             citations.append(
                 Citation(
-                    type=CitationType.SEARCH,
-                    url=web.get("uri"),
+                    type=CitationType.URL
+                    if uri in context_urls
+                    else CitationType.SEARCH,
+                    url=uri,
                     title=web.get("title"),
                     span=span,
                 )

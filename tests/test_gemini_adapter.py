@@ -653,6 +653,35 @@ class TestParseStream:
         ]
 
     @pytest.mark.asyncio
+    async def test_url_context_citations_typed_as_url(self) -> None:
+        chunk = _url_context_chunk(
+            [
+                {
+                    "retrievedUrl": "https://a.example",
+                    "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS",
+                },
+            ],
+            text="Fetched. Searched.",
+        )
+        chunk["candidates"][0]["groundingMetadata"] = {
+            "groundingChunks": [
+                {"web": {"uri": "https://a.example", "title": "a"}},
+                {"web": {"uri": "https://search.example", "title": "s"}},
+            ],
+            "groundingSupports": [
+                {
+                    "segment": {"startIndex": 0, "endIndex": 8},
+                    "groundingChunkIndices": [0, 1],
+                },
+            ],
+        }
+        out = await _final_output([chunk])
+        assert [(c.url, c.type) for c in out.citations] == [
+            ("https://a.example", CitationType.URL),
+            ("https://search.example", CitationType.SEARCH),
+        ]
+
+    @pytest.mark.asyncio
     async def test_tool_use_prompt_tokens_counted_as_input(self) -> None:
         chunk = _url_context_chunk(
             [
