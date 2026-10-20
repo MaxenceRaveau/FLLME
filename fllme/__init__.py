@@ -23,7 +23,9 @@ from .models import (
     Tool,
     ToolsConfig,
     Usage,
+    WebSearchMetadata,
     WebSearchTool,
+    WebSource,
 )
 from .auth import AuthResolver, get_resolver, register_resolver
 from .store import AuthRepository, DeploymentRepository, ModelRepository, SQLiteStore
@@ -81,7 +83,9 @@ __all__ = [
     "Tool",
     "ToolsConfig",
     "Usage",
+    "WebSearchMetadata",
     "WebSearchTool",
+    "WebSource",
     "configure",
     "generate",
     "get_adapter",

@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from fllme.models.auth import BUILTIN_PRINCIPLES, AuthPrinciple
 from fllme.models.deployment import AdapterType, Deployment
 from fllme.models.model import LLMModel, Provider
+from fllme.models.output import GenerationOutput
 
 
 class TestLLMModel:
@@ -93,3 +94,17 @@ class TestAuthPrinciple:
         ids = {p.id for p in BUILTIN_PRINCIPLES}
         assert "google_adc" in ids
         assert "api_key" in ids
+
+
+class TestGenerationOutput:
+    def test_generation_output_web_search_default(self) -> None:
+        out = GenerationOutput.model_validate(
+            {
+                "id": "x",
+                "model": "m",
+                "message": {"source": "model", "contents": []},
+                "finish_reason": "stop",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+        )
+        assert out.web_search is None

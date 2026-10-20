@@ -10,6 +10,7 @@ from .citation import Citation
 from .safety import SafetyResult
 from .stream import StreamDelta
 from .usage import Usage
+from .web_search import WebSearchMetadata
 from ..message import Message
 
 
@@ -30,6 +31,7 @@ class GenerationOutput(BaseModel):
     finish_reason: FinishReason
     usage: Usage
     citations: list[Citation] = []
+    web_search: WebSearchMetadata | None = None
     safety: SafetyResult | None = None
     created: int | None = None
 
