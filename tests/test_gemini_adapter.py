@@ -653,32 +653,6 @@ class TestParseStream:
         ]
 
     @pytest.mark.asyncio
-    async def test_url_context_snake_case_keys(self) -> None:
-        chunks: list[dict[str, Any]] = [
-            {
-                "candidates": [
-                    {
-                        "content": {"parts": [{"text": "Ok."}], "role": "model"},
-                        "url_context_metadata": {
-                            "url_metadata": [
-                                {
-                                    "retrieved_url": "https://a.example",
-                                    "url_retrieval_status": (
-                                        "URL_RETRIEVAL_STATUS_SUCCESS"
-                                    ),
-                                },
-                            ]
-                        },
-                    }
-                ],
-            }
-        ]
-        out = await _final_output(chunks)
-        assert _url_items(out) == [
-            ("https://a.example", UrlRetrievalStatus.SUCCESS),
-        ]
-
-    @pytest.mark.asyncio
     async def test_tool_use_prompt_tokens_counted_as_input(self) -> None:
         chunk = _url_context_chunk(
             [

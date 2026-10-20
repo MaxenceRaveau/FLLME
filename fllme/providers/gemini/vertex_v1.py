@@ -394,20 +394,15 @@ def _parse_safety_ratings(ratings: list[dict[str, Any]]) -> SafetyResult:
 def _parse_url_context_metadata(
     candidate: dict[str, Any],
 ) -> list[tuple[str, UrlRetrievalStatus]]:
-    meta = (
-        candidate.get("urlContextMetadata")
-        or candidate.get("url_context_metadata")
-        or {}
-    )
-    entries = meta.get("urlMetadata") or meta.get("url_metadata") or []
+    meta = candidate.get("urlContextMetadata") or {}
+    entries = meta.get("urlMetadata") or []
     results: list[tuple[str, UrlRetrievalStatus]] = []
     for entry in entries:
-        url = entry.get("retrievedUrl") or entry.get("retrieved_url")
+        url = entry.get("retrievedUrl")
         if not url:
             continue
-        raw = entry.get("urlRetrievalStatus") or entry.get("url_retrieval_status")
         status = _URL_RETRIEVAL_STATUS_MAP.get(
-            raw or "", UrlRetrievalStatus.UNSPECIFIED
+            entry.get("urlRetrievalStatus", ""), UrlRetrievalStatus.UNSPECIFIED
         )
         results.append((url, status))
     return results
