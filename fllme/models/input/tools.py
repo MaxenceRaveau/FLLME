@@ -21,7 +21,13 @@ class WebSearchTool(BaseModel):
     exclude_domains: list[str] = []
 
 
-ToolDefinition = Annotated[Union[Tool, WebSearchTool], Field(discriminator="type")]
+class UrlContextTool(BaseModel):
+    type: Literal["UrlContextTool"] = "UrlContextTool"
+
+
+ToolDefinition = Annotated[
+    Union[Tool, WebSearchTool, UrlContextTool], Field(discriminator="type")
+]
 
 
 class ToolsConfig(BaseModel):

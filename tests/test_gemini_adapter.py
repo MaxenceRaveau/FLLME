@@ -13,6 +13,7 @@ from fllme.models.input import (
     Tool,
     ToolsCallingMode,
     ToolsConfig,
+    UrlContextTool,
     WebSearchTool,
 )
 from fllme.models.message import (
@@ -239,6 +240,57 @@ class TestSerialize:
         payload = adapter.serialize(inp)
         assert payload["tools"] == [{"enterpriseWebSearch": {}}]
         assert "toolConfig" not in payload
+
+    def test_url_context_tool_serialization(self) -> None:
+        adapter = GeminiVertexV1()
+        inp = _simple_input()
+        inp = inp.model_copy(
+            update={
+                "tool_config": ToolsConfig(
+                    tools=[UrlContextTool()],
+                    parallel_calling=False,
+                    mode=ToolsCallingMode.AUTO,
+                ),
+            }
+        )
+        payload = adapter.serialize(inp)
+        assert payload["tools"] == [{"urlContext": {}}]
+        assert "toolConfig" not in payload
+
+    def test_url_context_with_web_search_and_function_tools(self) -> None:
+        adapter = GeminiVertexV1()
+        inp = _simple_input()
+        inp = inp.model_copy(
+            update={
+                "tool_config": ToolsConfig(
+                    tools=[
+                        UrlContextTool(),
+                        Tool(
+                            name="get_weather",
+                            description="Get weather.",
+                            parameters={
+                                "type": "object",
+                                "properties": {"city": {"type": "string"}},
+                                "required": ["city"],
+                            },
+                        ),
+                        WebSearchTool(),
+                    ],
+                    parallel_calling=True,
+                    mode=ToolsCallingMode.AUTO,
+                ),
+            }
+        )
+        payload = adapter.serialize(inp)
+        decls = payload["tools"][0]["functionDeclarations"]
+        assert decls[0]["name"] == "get_weather"
+        assert payload["tools"][1:] == [
+            {"urlContext": {}},
+            {"enterpriseWebSearch": {}},
+        ]
+        assert payload["toolConfig"] == {
+            "functionCallingConfig": {"mode": "AUTO"},
+        }
 
     def test_web_search_tool_with_excluded_domains(self) -> None:
         adapter = GeminiVertexV1()

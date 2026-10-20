@@ -29,6 +29,7 @@ from .input import (
     ToolDefinition,
     ToolsCallingMode,
     ToolsConfig,
+    UrlContextTool,
     WebSearchTool,
 )
 from .auth import AuthPrinciple
@@ -101,5 +102,6 @@ __all__ = [
     "UrlSource",
     "Usage",
     "WebSearchQueryContent",
+    "UrlContextTool",
     "WebSearchTool",
 ]

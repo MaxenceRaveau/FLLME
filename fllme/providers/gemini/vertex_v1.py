@@ -11,6 +11,7 @@ from ...models.input import (
     ThinkingLevel,
     Tool,
     ToolsCallingMode,
+    UrlContextTool,
     WebSearchTool,
 )
 from ..base import accumulate_content
@@ -117,6 +118,8 @@ class GeminiVertexV1:
                         if exclude_domains:
                             web_search["excludeDomains"] = exclude_domains
                         tool_entries.append({"enterpriseWebSearch": web_search})
+                    case UrlContextTool():
+                        tool_entries.append({"urlContext": {}})
                     case Tool(
                         name=name, description=description, parameters=parameters
                     ):

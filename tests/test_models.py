@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from fllme.models.auth import BUILTIN_PRINCIPLES, AuthPrinciple
 from fllme.models.deployment import AdapterType, Deployment
+from fllme.models.input import ToolsCallingMode, ToolsConfig, UrlContextTool
 from fllme.models.model import LLMModel, Provider
 
 
@@ -93,3 +94,14 @@ class TestAuthPrinciple:
         ids = {p.id for p in BUILTIN_PRINCIPLES}
         assert "google_adc" in ids
         assert "api_key" in ids
+
+
+class TestToolsConfig:
+    def test_url_context_round_trip(self) -> None:
+        cfg = ToolsConfig(
+            tools=[UrlContextTool()],
+            parallel_calling=False,
+            mode=ToolsCallingMode.AUTO,
+        )
+        restored = ToolsConfig.model_validate_json(cfg.model_dump_json())
+        assert isinstance(restored.tools[0], UrlContextTool)

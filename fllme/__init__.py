@@ -22,6 +22,7 @@ from .models import (
     ThinkingLevel,
     Tool,
     ToolsConfig,
+    UrlContextTool,
     Usage,
     WebSearchTool,
 )
@@ -81,6 +82,7 @@ __all__ = [
     "Tool",
     "ToolsConfig",
     "Usage",
+    "UrlContextTool",
     "WebSearchTool",
     "configure",
     "generate",
