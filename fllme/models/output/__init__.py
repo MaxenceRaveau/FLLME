@@ -8,7 +8,6 @@ from .safety import (
     SafetySeverity,
 )
 from .stream import MediaDelta, StreamDelta, TextDelta, ThinkingDelta
-from .web_search import WebSearchMetadata, WebSource
 
 __all__ = [
     "CacheUsage",
@@ -27,6 +26,4 @@ __all__ = [
     "TextSpan",
     "ThinkingDelta",
     "Usage",
-    "WebSearchMetadata",
-    "WebSource",
 ]

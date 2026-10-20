@@ -49,8 +49,6 @@ from .output import (
     TextSpan,
     ThinkingDelta,
     Usage,
-    WebSearchMetadata,
-    WebSource,
 )
 
 __all__ = [
@@ -101,7 +99,5 @@ __all__ = [
     "ToolsConfig",
     "UrlSource",
     "Usage",
-    "WebSearchMetadata",
     "WebSearchTool",
-    "WebSource",
 ]

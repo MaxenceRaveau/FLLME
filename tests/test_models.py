@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from fllme.models.auth import BUILTIN_PRINCIPLES, AuthPrinciple
 from fllme.models.deployment import AdapterType, Deployment
 from fllme.models.model import LLMModel, Provider
-from fllme.models.output import GenerationOutput
+from fllme.models.output import Citation, CitationType
 
 
 class TestLLMModel:
@@ -96,15 +96,10 @@ class TestAuthPrinciple:
         assert "api_key" in ids
 
 
-class TestGenerationOutput:
-    def test_generation_output_web_search_default(self) -> None:
-        out = GenerationOutput.model_validate(
-            {
-                "id": "x",
-                "model": "m",
-                "message": {"source": "model", "contents": []},
-                "finish_reason": "stop",
-                "usage": {"input_tokens": 0, "output_tokens": 0},
-            }
+class TestCitation:
+    def test_citation_without_domain_still_validates(self) -> None:
+        citation = Citation.model_validate(
+            {"type": "search", "url": "https://example.com", "title": "Example"}
         )
-        assert out.web_search is None
+        assert citation.type == CitationType.SEARCH
+        assert citation.domain is None

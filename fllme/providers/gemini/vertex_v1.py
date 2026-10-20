@@ -41,8 +41,6 @@ from ...models.output import (
     TextSpan,
     ThinkingDelta,
     Usage,
-    WebSearchMetadata,
-    WebSource,
 )
 
 _THINKING_BUDGET: dict[ThinkingLevel, int] = {
@@ -151,7 +149,8 @@ class GeminiVertexV1:
         usage_meta: dict[str, Any] = {}
         safety_ratings: list[dict[str, Any]] = []
         grounding_meta: dict[str, Any] = {}
-        web_search: WebSearchMetadata | None = None
+        search_queries: list[str] = []
+        search_sources: dict[str, dict[str, Any]] = {}
         model_name = ""
         has_tool_calls = False
 
@@ -176,9 +175,7 @@ class GeminiVertexV1:
 
                 if gm := candidate.get("groundingMetadata"):
                     grounding_meta = gm
-                    if web_search is None:
-                        web_search = WebSearchMetadata()
-                    _merge_web_search(web_search, gm)
+                    _collect_web_search(gm, search_queries, search_sources)
 
                 for part in candidate.get("content", {}).get("parts", []):
                     if part.get("thought") and (text := part.get("text")):
@@ -233,6 +230,7 @@ class GeminiVertexV1:
 
         safety = _parse_safety_ratings(safety_ratings) if safety_ratings else None
         citations = _parse_grounding_metadata(grounding_meta) if grounding_meta else []
+        citations += _web_search_citations(citations, search_queries, search_sources)
 
         yield GenerationOutput(
             id=uuid.uuid4().hex,
@@ -242,7 +240,6 @@ class GeminiVertexV1:
             usage=usage,
             safety=safety,
             citations=citations,
-            web_search=web_search,
         )
 
 
@@ -380,26 +377,44 @@ def _parse_grounding_metadata(grounding: dict[str, Any]) -> list[Citation]:
                     type=CitationType.SEARCH,
                     url=web.get("uri"),
                     title=web.get("title"),
+                    domain=web.get("domain"),
                     span=span,
                 )
             )
     return citations
 
 
-def _merge_web_search(web_search: WebSearchMetadata, grounding: dict[str, Any]) -> None:
+def _collect_web_search(
+    grounding: dict[str, Any],
+    queries: list[str],
+    sources: dict[str, dict[str, Any]],
+) -> None:
     for query in grounding.get("webSearchQueries", []):
-        if isinstance(query, str) and query and query not in web_search.queries:
-            web_search.queries.append(query)
-
-    known_urls = {source.url for source in web_search.sources}
+        if isinstance(query, str) and query and query not in queries:
+            queries.append(query)
     for chunk in grounding.get("groundingChunks", []):
         web = chunk.get("web", {})
-        url = web.get("uri")
-        if url and url not in known_urls:
-            known_urls.add(url)
-            web_search.sources.append(
-                WebSource(url=url, title=web.get("title"), domain=web.get("domain"))
-            )
+        if (url := web.get("uri")) and url not in sources:
+            sources[url] = web
 
-    if rendered := grounding.get("searchEntryPoint", {}).get("renderedContent"):
-        web_search.rendered_content = rendered
+
+def _web_search_citations(
+    passage_citations: list[Citation],
+    queries: list[str],
+    sources: dict[str, dict[str, Any]],
+) -> list[Citation]:
+    cited_urls = {citation.url for citation in passage_citations}
+    citations = [
+        Citation(
+            type=CitationType.SEARCH,
+            url=url,
+            title=web.get("title"),
+            domain=web.get("domain"),
+        )
+        for url, web in sources.items()
+        if url not in cited_urls
+    ]
+    citations.extend(
+        Citation(type=CitationType.SEARCH_QUERY, content=query) for query in queries
+    )
+    return citations

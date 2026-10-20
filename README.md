@@ -159,9 +159,8 @@ Built-in principles (`google_adc`, `api_key`) are pre-seeded in the default SQLi
 - **message** — the model's response as a `Message` (directly appendable to conversation history)
 - **finish_reason** — why generation stopped (stop, max_tokens, tool_use, content_filter, error)
 - **usage** — token breakdown (input, output, thinking, cache read/creation)
-- **citations** — grounding annotations (URL, document, search) with text spans and confidence
+- **citations** — grounding annotations (URL, document, search) with text spans and confidence. With Gemini web search, `search` citations also carry the source `domain`; sources the search returned but the answer does not cite come as `search` citations without a span, and each query the model ran comes as a `search_query` citation (query text in `content`)
 - **safety** — content filtering results with per-category ratings and refusal details
-- **web_search** — when the model grounded its answer with web search (Gemini only, `None` otherwise): the `queries` it ran, every `sources` entry returned (url, title, domain) and the search-suggestion HTML (`rendered_content`)
 
 ### Streaming
 

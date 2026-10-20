@@ -34,7 +34,6 @@ from fllme.models.output import (
     TextDelta,
     ThinkingDelta,
 )
-from fllme.models.output import WebSource
 from fllme.providers.gemini.vertex_v1 import GeminiVertexV1
 
 
@@ -434,7 +433,7 @@ class TestParseStream:
         assert out.finish_reason == FinishReason.STOP
         assert out.usage.input_tokens == 5
         assert out.usage.output_tokens == 3
-        assert out.web_search is None
+        assert out.citations == []
 
     @pytest.mark.asyncio
     async def test_thinking_stream(self) -> None:
@@ -574,12 +573,18 @@ class TestParseStream:
                         "finishReason": "STOP",
                         "groundingMetadata": {
                             "webSearchQueries": ["capital of France"],
-                            "searchEntryPoint": {"renderedContent": "<div>chips</div>"},
                             "groundingChunks": [
                                 {
                                     "web": {
                                         "uri": "https://example.com/paris",
                                         "title": "Paris - Wikipedia",
+                                        "domain": "example.com",
+                                    },
+                                },
+                                {
+                                    "web": {
+                                        "uri": "https://example.com/unused",
+                                        "title": "Unused source",
                                         "domain": "example.com",
                                     },
                                 },
@@ -610,26 +615,30 @@ class TestParseStream:
             results.append(item)
 
         out: GenerationOutput = results[-1]
-        assert len(out.citations) == 1
+        assert len(out.citations) == 3
         citation = out.citations[0]
         assert citation.type == CitationType.SEARCH
         assert citation.url == "https://example.com/paris"
         assert citation.title == "Paris - Wikipedia"
+        assert citation.domain == "example.com"
         assert citation.span is not None
         assert citation.span.text == "Paris is the capital of France."
-        assert out.web_search is not None
-        assert out.web_search.queries == ["capital of France"]
-        assert out.web_search.sources == [
-            WebSource(
-                url="https://example.com/paris",
-                title="Paris - Wikipedia",
-                domain="example.com",
-            )
-        ]
-        assert out.web_search.rendered_content == "<div>chips</div>"
+
+        unused = out.citations[1]
+        assert unused.type == CitationType.SEARCH
+        assert unused.url == "https://example.com/unused"
+        assert unused.title == "Unused source"
+        assert unused.domain == "example.com"
+        assert unused.span is None
+
+        query = out.citations[2]
+        assert query.type == CitationType.SEARCH_QUERY
+        assert query.content == "capital of France"
+        assert query.url is None
+        assert query.span is None
 
     @pytest.mark.asyncio
-    async def test_web_search_accumulated_across_chunks(self) -> None:
+    async def test_web_search_citations_accumulated_across_chunks(self) -> None:
         adapter = GeminiVertexV1()
         chunks: list[dict[str, Any]] = [
             {
@@ -687,15 +696,17 @@ class TestParseStream:
             results.append(item)
 
         out: GenerationOutput = results[-1]
-        assert out.web_search is not None
-        assert out.web_search.queries == ["capital of France", "Paris population"]
-        assert [src.url for src in out.web_search.sources] == [
-            "https://a.com",
-            "https://b.com",
+        assert [(c.type, c.url, c.content, c.span) for c in out.citations] == [
+            (CitationType.SEARCH, "https://a.com", None, None),
+            (CitationType.SEARCH, "https://b.com", None, None),
+            (CitationType.SEARCH_QUERY, None, "capital of France", None),
+            (CitationType.SEARCH_QUERY, None, "Paris population", None),
         ]
 
     @pytest.mark.asyncio
-    async def test_grounding_without_queries_yields_empty_web_search(self) -> None:
+    async def test_grounding_without_queries_or_sources_yields_no_citations(
+        self,
+    ) -> None:
         adapter = GeminiVertexV1()
         chunks: list[dict[str, Any]] = [
             {
@@ -717,10 +728,7 @@ class TestParseStream:
             results.append(item)
 
         out: GenerationOutput = results[-1]
-        assert out.web_search is not None
-        assert out.web_search.queries == []
-        assert out.web_search.sources == []
-        assert out.web_search.rendered_content is None
+        assert out.citations == []
 
     @pytest.mark.asyncio
     async def test_skips_non_sse_lines(self) -> None:
