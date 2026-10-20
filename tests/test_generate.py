@@ -1,6 +1,6 @@
 import importlib
 import json
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -12,14 +12,22 @@ from fllme.errors import ProviderError
 from fllme.generate import configure, generate, get_service
 from fllme.models.deployment import AdapterType, Deployment
 from fllme.models.input import GenerationInput
-from fllme.models.message import Message, MessageSource, TextContent
+from fllme.models.message import (
+    Message,
+    MessageSource,
+    TextContent,
+    ThinkingContent,
+    WebSearchQueryContent,
+)
 from fllme.models.model import LLMModel, Provider
 from fllme.models.output import (
+    CitationType,
     FinishReason,
     GenerationOutput,
     Response,
     StreamDelta,
     TextDelta,
+    ThinkingDelta,
 )
 from fllme.service import DeploymentService
 
@@ -51,26 +59,60 @@ class TestConfigureAndGetService:
             mod.DEFAULT_SERVICE = original
 
 
-def _sse(*chunks: dict[str, Any]) -> bytes:
-    return "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks).encode()
-
-
-_GEMINI_SSE = _sse(
-    {"candidates": [{"content": {"parts": [{"text": "Hello "}], "role": "model"}}]},
+_GEMINI_CHUNKS: list[dict[str, Any]] = [
+    {
+        "modelVersion": "gemini-2.5-flash",
+        "candidates": [
+            {
+                "content": {
+                    "parts": [{"text": "Looking up France.", "thought": True}],
+                    "role": "model",
+                }
+            }
+        ],
+    },
+    {"candidates": [{"content": {"parts": [{"text": "Paris is "}], "role": "model"}}]},
     {
         "candidates": [
             {
-                "content": {"parts": [{"text": "world"}], "role": "model"},
+                "content": {
+                    "parts": [{"text": "the capital of France."}],
+                    "role": "model",
+                },
                 "finishReason": "STOP",
+                "groundingMetadata": {
+                    "webSearchQueries": ["capital of France"],
+                    "groundingChunks": [
+                        {
+                            "web": {
+                                "uri": "https://example.com/paris",
+                                "title": "Paris - Wikipedia",
+                            }
+                        }
+                    ],
+                    "groundingSupports": [
+                        {
+                            "segment": {
+                                "startIndex": 0,
+                                "endIndex": 31,
+                                "text": "Paris is the capital of France.",
+                            },
+                            "groundingChunkIndices": [0],
+                        }
+                    ],
+                },
             }
         ],
         "usageMetadata": {
-            "promptTokenCount": 3,
-            "candidatesTokenCount": 2,
-            "totalTokenCount": 5,
+            "promptTokenCount": 4,
+            "candidatesTokenCount": 7,
+            "thoughtsTokenCount": 3,
+            "totalTokenCount": 14,
         },
     },
-)
+]
+
+_GEMINI_SSE = "".join(f"data: {json.dumps(c)}\n\n" for c in _GEMINI_CHUNKS).encode()
 
 
 def _input(*, stream: bool) -> GenerationInput:
@@ -78,28 +120,12 @@ def _input(*, stream: bool) -> GenerationInput:
         model="gemini",
         stream=stream,
         conversation=[
-            Message(source=MessageSource.USER, contents=[TextContent(text="Hi")])
+            Message(
+                source=MessageSource.USER,
+                contents=[TextContent(text="What is the capital of France?")],
+            )
         ],
     )
-
-
-def _text(output: GenerationOutput) -> str:
-    return "".join(
-        c.text for c in output.message.contents if isinstance(c, TextContent)
-    )
-
-
-def _as_stream(
-    result: GenerationOutput | AsyncIterator[Response],
-) -> AsyncIterator[Response]:
-    assert not isinstance(result, GenerationOutput)
-    return result
-
-
-def _delta_text(response: Response) -> str:
-    assert isinstance(response.content, StreamDelta)
-    assert isinstance(response.content.delta, TextDelta)
-    return response.content.delta.text
 
 
 @pytest_asyncio.fixture
@@ -133,78 +159,61 @@ def _mock_client(
 
 class TestGenerateStreamArgument:
     @pytest.mark.asyncio
-    async def test_stream_false_returns_generation_output(
-        self, service: DeploymentService
-    ) -> None:
+    async def test_stream_false_and_true(self, service: DeploymentService) -> None:
         client, requests = _mock_client()
-        with patch("fllme.generate.get_client", return_value=client):
-            result = await generate(_input(stream=False), service=service)
-
-        assert isinstance(result, GenerationOutput)
-        assert _text(result) == "Hello world"
-        assert result.finish_reason == FinishReason.STOP
-        assert result.usage.total_tokens == 5
-        assert len(requests) == 1
-
-    @pytest.mark.asyncio
-    async def test_stream_true_yields_deltas_then_output(
-        self, service: DeploymentService
-    ) -> None:
-        client, _ = _mock_client()
-        with patch("fllme.generate.get_client", return_value=client):
-            stream = _as_stream(await generate(_input(stream=True), service=service))
-            responses = [r async for r in stream]
-
-        assert all(isinstance(r, Response) for r in responses)
-        *deltas, last = responses
-        assert [_delta_text(d) for d in deltas] == ["Hello ", "world"]
-        assert isinstance(last.content, GenerationOutput)
-        assert _text(last.content) == "Hello world"
-
-    @pytest.mark.asyncio
-    async def test_stream_true_is_lazy(self, service: DeploymentService) -> None:
-        client, requests = _mock_client()
-        with patch("fllme.generate.get_client", return_value=client):
-            stream = _as_stream(await generate(_input(stream=True), service=service))
-            assert requests == []
-            [r async for r in stream]
-        assert len(requests) == 1
-
-    @pytest.mark.asyncio
-    async def test_stream_false_and_true_give_same_output(
-        self, service: DeploymentService
-    ) -> None:
-        client, _ = _mock_client()
         with patch("fllme.generate.get_client", return_value=client):
             collected = await generate(_input(stream=False), service=service)
-            stream = _as_stream(await generate(_input(stream=True), service=service))
-            streamed = [r async for r in stream][-1].content
+            assert len(requests) == 1
+
+            stream = await generate(_input(stream=True), service=service)
+            assert len(requests) == 1
+            assert not isinstance(stream, GenerationOutput)
+            responses = [r async for r in stream]
+            assert len(requests) == 2
 
         assert isinstance(collected, GenerationOutput)
+        assert collected.model == "gemini-2.5-flash"
+        assert collected.finish_reason == FinishReason.STOP
+        assert collected.message.source == MessageSource.MODEL
+        assert collected.message.contents == [
+            ThinkingContent(thinking="Looking up France."),
+            TextContent(text="Paris is the capital of France."),
+            WebSearchQueryContent(query="capital of France"),
+        ]
+        assert collected.usage.input_tokens == 4
+        assert collected.usage.output_tokens == 7
+        assert collected.usage.thinking_tokens == 3
+        assert collected.usage.total_tokens == 14
+        assert len(collected.citations) == 1
+        assert collected.citations[0].type == CitationType.SEARCH
+        assert collected.citations[0].url == "https://example.com/paris"
+        assert collected.citations[0].title == "Paris - Wikipedia"
+        assert collected.citations[0].span is not None
+        assert collected.citations[0].span.text == "Paris is the capital of France."
+
+        assert all(isinstance(r, Response) for r in responses)
+        assert [r.content for r in responses[:-1]] == [
+            StreamDelta(delta=ThinkingDelta(thinking="Looking up France.")),
+            StreamDelta(delta=TextDelta(text="Paris is ")),
+            StreamDelta(delta=TextDelta(text="the capital of France.")),
+        ]
+        streamed = responses[-1].content
         assert isinstance(streamed, GenerationOutput)
-        assert collected.model_dump(exclude={"id"}) == streamed.model_dump(
+        assert streamed.model_dump(exclude={"id"}) == collected.model_dump(
             exclude={"id"}
         )
 
     @pytest.mark.asyncio
-    async def test_stream_false_raises_provider_error(
-        self, service: DeploymentService
-    ) -> None:
+    async def test_provider_error(self, service: DeploymentService) -> None:
         client, _ = _mock_client(status_code=429, body=b"quota exceeded")
-        with (
-            patch("fllme.generate.get_client", return_value=client),
-            pytest.raises(ProviderError, match="quota exceeded") as exc_info,
-        ):
-            await generate(_input(stream=False), service=service)
-        assert exc_info.value.status_code == 429
-
-    @pytest.mark.asyncio
-    async def test_stream_true_raises_provider_error_on_iteration(
-        self, service: DeploymentService
-    ) -> None:
-        client, _ = _mock_client(status_code=500, body=b"boom")
         with patch("fllme.generate.get_client", return_value=client):
-            stream = _as_stream(await generate(_input(stream=True), service=service))
-            with pytest.raises(ProviderError, match="boom") as exc_info:
+            with pytest.raises(ProviderError, match="quota exceeded") as collect_err:
+                await generate(_input(stream=False), service=service)
+
+            stream = await generate(_input(stream=True), service=service)
+            assert not isinstance(stream, GenerationOutput)
+            with pytest.raises(ProviderError, match="quota exceeded") as stream_err:
                 [r async for r in stream]
-        assert exc_info.value.status_code == 500
+
+        assert collect_err.value.status_code == 429
+        assert stream_err.value.status_code == 429
