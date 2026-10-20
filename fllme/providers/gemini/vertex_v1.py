@@ -194,7 +194,11 @@ class GeminiVertexV1:
                             search_queries.append(query)
 
                 for url, status in _parse_url_context_metadata(candidate):
-                    url_statuses[url] = status
+                    if (
+                        status != UrlRetrievalStatus.UNSPECIFIED
+                        or url not in url_statuses
+                    ):
+                        url_statuses[url] = status
 
                 for part in candidate.get("content", {}).get("parts", []):
                     if part.get("thought") and (text := part.get("text")):

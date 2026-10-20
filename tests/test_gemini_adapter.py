@@ -601,6 +601,34 @@ class TestParseStream:
         ]
 
     @pytest.mark.asyncio
+    async def test_url_context_unspecified_does_not_overwrite_known_status(
+        self,
+    ) -> None:
+        chunks = [
+            _url_context_chunk(
+                [
+                    {
+                        "retrievedUrl": "https://a.example",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_PAYWALL",
+                    },
+                ]
+            ),
+            _url_context_chunk(
+                [
+                    {"retrievedUrl": "https://a.example"},
+                    {
+                        "retrievedUrl": "https://a.example",
+                        "urlRetrievalStatus": "SOMETHING_NEW",
+                    },
+                ]
+            ),
+        ]
+        out = await _final_output(chunks)
+        assert _url_items(out) == [
+            ("https://a.example", UrlRetrievalStatus.PAYWALL),
+        ]
+
+    @pytest.mark.asyncio
     async def test_url_context_unknown_status_is_unspecified(self) -> None:
         chunks = [
             _url_context_chunk(
