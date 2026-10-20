@@ -253,7 +253,10 @@ class GeminiVertexV1:
         message = Message(source=MessageSource.MODEL, contents=accumulated)
 
         usage = Usage(
-            input_tokens=usage_meta.get("promptTokenCount", 0),
+            # URL context / grounding content is billed as input but reported
+            # separately from the prompt.
+            input_tokens=usage_meta.get("promptTokenCount", 0)
+            + usage_meta.get("toolUsePromptTokenCount", 0),
             output_tokens=usage_meta.get("candidatesTokenCount", 0),
             thinking_tokens=usage_meta.get("thoughtsTokenCount", 0),
             total_tokens=usage_meta.get("totalTokenCount", 0),

@@ -679,6 +679,27 @@ class TestParseStream:
         ]
 
     @pytest.mark.asyncio
+    async def test_tool_use_prompt_tokens_counted_as_input(self) -> None:
+        chunk = _url_context_chunk(
+            [
+                {
+                    "retrievedUrl": "https://a.example",
+                    "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS",
+                },
+            ]
+        )
+        chunk["usageMetadata"] = {
+            "promptTokenCount": 10,
+            "toolUsePromptTokenCount": 4000,
+            "candidatesTokenCount": 5,
+            "totalTokenCount": 4015,
+        }
+        out = await _final_output([chunk])
+        assert out.usage.input_tokens == 4010
+        assert out.usage.output_tokens == 5
+        assert out.usage.total_tokens == 4015
+
+    @pytest.mark.asyncio
     async def test_thinking_stream(self) -> None:
         adapter = GeminiVertexV1()
         chunks: list[dict[str, Any]] = [
